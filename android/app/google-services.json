@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "170432078863",
+    "project_id": "baladi-eb87b",
+    "storage_bucket": "baladi-eb87b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:170432078863:android:1e3016e8c11e897eb9ef7a",
+        "android_client_info": {
+          "package_name": "com.example.baladi"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyApeCA48gJAhQ6Y7Z71EyjSaRz-ol0c-CM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:170432078863:android:a4487a30017b7720b9ef7a",
+        "android_client_info": {
+          "package_name": "com.example.test_fcm"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyApeCA48gJAhQ6Y7Z71EyjSaRz-ol0c-CM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
