@@ -29,6 +29,8 @@ class NotificationHelper {
 
     await FirebaseMessaging.instance.requestPermission();
 
+    await FirebaseMessaging.instance.subscribeToTopic('all');
+
     FirebaseMessaging.onBackgroundMessage(onBackgroundMessage);
     FirebaseMessaging.onMessage.listen(onBackgroundMessage);
   }
