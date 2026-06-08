@@ -1,21 +1,21 @@
 {
   "project_info": {
-    "project_number": "170432078863",
-    "project_id": "baladi-eb87b",
-    "storage_bucket": "baladi-eb87b.firebasestorage.app"
+    "project_number": "793781776356",
+    "project_id": "helpful-loai",
+    "storage_bucket": "helpful-loai.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:170432078863:android:1e3016e8c11e897eb9ef7a",
+        "mobilesdk_app_id": "1:793781776356:android:29d82c69a97651047fa1f1",
         "android_client_info": {
-          "package_name": "com.example.baladi"
+          "package_name": "com.example.helpfull_loai"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyApeCA48gJAhQ6Y7Z71EyjSaRz-ol0c-CM"
+          "current_key": "AIzaSyARcKGc0Th9eFUAfRdpB8k5bmE-0YQSbV4"
         }
       ],
       "services": {
@@ -26,7 +26,7 @@
     },
     {
       "client_info": {
-        "mobilesdk_app_id": "1:170432078863:android:a4487a30017b7720b9ef7a",
+        "mobilesdk_app_id": "1:793781776356:android:df95c66ba4d49e9f7fa1f1",
         "android_client_info": {
           "package_name": "com.example.test_fcm"
         }
@@ -34,7 +34,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyApeCA48gJAhQ6Y7Z71EyjSaRz-ol0c-CM"
+          "current_key": "AIzaSyARcKGc0Th9eFUAfRdpB8k5bmE-0YQSbV4"
         }
       ],
       "services": {
