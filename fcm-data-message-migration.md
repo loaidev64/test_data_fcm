@@ -289,7 +289,7 @@ Navigation based on `message.data` keys (`ticketId`, `quizId`, `questionId`, `li
 |---|---|---|---|
 | **Backward compatibility during rollout** | High | If the backend switches to data-only before all users update, old app versions won't display any notifications (they expect `message.notification`). | Coordinate a hard cutover, or implement a backend feature flag that sends both `notification` and `data` during a transition window. |
 | **Testing complexity** | Medium | Firebase Console test messages typically send `notification` payloads. Testing data-only messages requires custom API calls or backend integration. | Provide backend team with a cURL example. Set up a staging endpoint for QA to trigger test data-only messages. |
-| **Duplicate notifications** | Low | If both `notification` and `data` are sent during a transition, or if the background and foreground handlers both trigger, the user might see duplicates. | Ensure only one handler shows the local notification. During transition, old app versions should ignore duplicate `data` if `notification` is present. |
+| **Duplicate notifications** | High (Android, dual-payload) | During Phase 1, Android auto-displays the `notification` block when the app is backgrounded or killed, while the new app also shows a local notification from `data` (with actions/sounds). Users can see two tray entries. | Dart routing alone cannot prevent the system tray entry. Add the Android native suppressor below. Long-term fix: Phase 2 sends `data`-only to updated clients. |
 | **iOS background/terminated delivery** | High | Data-only FCM messages on iOS do **not** wake the app unless the backend includes `"aps": {"content-available": true}` in the APNs payload. Without this, users in background/terminated states will never see the notification. | Document the backend requirement to add `content-available: true` to the APNs payload. Test on physical iOS devices in both states. |
 | **Message handling inconsistency** | High | Current code branches on `message.notification?.android?.imageUrl` and `message.notification?.android?.sound`. After migration, these will be `null`, causing all notifications to fall through to the text-only path and lose images/sounds. | Audit all references to `message.notification` in `messaging_service.dart` and `notification_core.dart`; replace with `message.data` extraction. |
 | **Image loading failures** | Medium | Previously FCM SDK handled image downloading. Now the app downloads via HTTP. Network failure, timeout, or large images can cause the notification to fail or delay. | Add timeout to the Dio request, catch exceptions gracefully, and fallback to text-only notification if the image fails to load. |
@@ -352,6 +352,108 @@ FirebaseMessaging.onMessage.listen((RemoteMessage message) {
   }
 });
 ```
+
+Dart routing ensures the **new app always builds the tray notification from `data`** when `data.title` and `data.body` are present. That is enough in **foreground**, because Android does not auto-display the `notification` block while the app is open.
+
+In **background or terminated** state, Android still auto-displays the `notification` block **before** the Dart background handler can run. There is no Flutter/Dart API to disable that system behavior when the backend sends a dual payload. The result is two notifications: a plain system one (no actions) and the app's data-driven one (with actions, custom sound, etc.).
+
+### Android native code: `FcmSystemNotificationSuppressor`
+
+**Files**:
+- `android/app/src/main/kotlin/<package>/FcmSystemNotificationSuppressor.kt`
+- Registered in `android/app/src/main/AndroidManifest.xml` as a `BroadcastReceiver` on `com.google.android.c2dm.intent.RECEIVE`
+
+**Purpose**: Cancel the auto-displayed FCM system notification after the Dart background handler posts the richer local notification from `data`, so dual-payload messages do not leave duplicate tray entries on Android.
+
+**How it works**:
+1. Listens for the same FCM delivery broadcast as `FlutterFirebaseMessagingReceiver`.
+2. Detects a **dual payload**: `data` contains `title` and `body`, and extras include `gcm.notification.*` keys (the system `notification` block).
+3. Waits ~3.5 seconds so the Dart background handler can initialize `flutter_local_notifications` and call `show()` on channel `my_channel_id_labib`.
+4. Cancels active notifications on FCM fallback channels (e.g. `fcm_fallback_notification_channel`) and common FCM tags, **without** cancelling notifications on `my_channel_id_labib`.
+
+**FcmSystemNotificationSuppressor**:
+```kotlin
+import android.app.NotificationManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+
+/// Cancels the auto-displayed FCM `notification` tray entry after the Dart
+/// background handler shows the richer local notification built from `data`.
+///
+/// Android always displays the `notification` block when the app is
+/// backgrounded/killed. There is no Dart API to prevent that, so we remove the
+/// system entry shortly after our data-driven notification is posted.
+class FcmSystemNotificationSuppressor : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val extras = intent.extras ?: return
+        if (!isDualPayload(extras)) return
+
+        val appContext = context.applicationContext
+        Handler(Looper.getMainLooper()).postDelayed({
+            cancelFcmFallbackNotifications(appContext)
+        }, 3500L)
+    }
+
+    private fun isDualPayload(extras: android.os.Bundle): Boolean {
+        val dataTitle = extras.getString("title")
+        val dataBody = extras.getString("body")
+        if (dataTitle.isNullOrEmpty() || dataBody.isNullOrEmpty()) return false
+
+        return extras.keySet().any { key -> key.startsWith("gcm.notification.") }
+    }
+
+    private fun cancelFcmFallbackNotifications(context: Context) {
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            for (statusBarNotification in nm.activeNotifications) {
+                val channelId = statusBarNotification.notification.channelId
+                if (channelId != null &&
+                    channelId.contains("fcm", ignoreCase = true) &&
+                    channelId != "my_channel_id_labib"
+                ) {
+                    nm.cancel(statusBarNotification.tag, statusBarNotification.id)
+                    Log.d(TAG, "cancelled FCM tray notification on channel $channelId")
+                }
+            }
+        }
+
+        nm.cancel("FCM_NOTIFICATION", 0)
+        nm.cancel(null, 0)
+    }
+
+    companion object {
+        private const val TAG = "FcmSuppressor"
+    }
+}
+```
+
+**Manifest registration** (inside `<application>`):
+
+```xml
+<receiver
+    android:name=".FcmSystemNotificationSuppressor"
+    android:exported="true"
+    android:permission="com.google.android.c2dm.permission.SEND">
+    <intent-filter>
+        <action android:name="com.google.android.c2dm.intent.RECEIVE" />
+    </intent-filter>
+</receiver>
+```
+
+**When it is needed**: Phase 1 dual-payload rollout on **Android** only, while the backend still sends both `notification` and `data` to all tokens.
+
+**When it is not needed**: After Phase 2, when updated clients receive **data-only** messages (no `notification` block), Android does not auto-display a system notification and this receiver becomes a no-op.
+
+**Limitations**:
+- Android only; iOS dual-payload behavior is different and is not handled by this receiver.
+- The system notification may appear briefly (~3 seconds) before it is cancelled.
+- Does not replace Phase 2 version targeting; it is a client-side workaround for the transition window.
 
 **Pros**:
 - Zero downtime for users.
@@ -463,6 +565,8 @@ For the Labib app, the recommended rollout is **Solution 1 (Dual-Payload)** comb
 - [ ] Ensure `FirebaseMessaging.onMessage` does **not** display a local notification when `message.notification` is present but `message.data['title']` is missing (avoids double notifications during transition).
 - [ ] Ensure background handler (`FirebaseMessaging.onBackgroundMessage`) also checks for `message.data['title']` before showing a local notification.
 - [ ] If both `notification` and `data` are present, the new app must **only** use the `data` path.
+- [ ] On **Android**, add `FcmSystemNotificationSuppressor` so dual-payload messages do not show duplicate tray entries when the app is backgrounded or killed.
+- [ ] Register the background handler as a **top-level** `@pragma('vm:entry-point')` function in `main.dart`, not as a static class method.
 - [ ] Log an analytics event (`notification_received_data_only`) to verify the new path is being hit in production.
 
 ## Testing Plan
